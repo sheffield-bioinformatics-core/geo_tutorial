@@ -26,7 +26,7 @@ install.packages("readr")
 BiocManager::install("GEOquery")
 BiocManager::install("limma")
 BiocManager::install("pheatmap")
-
+BiocManager::install("org.Hs.eg.db")
 ```
 
 You will also need to be familiar with our introductory materials on the `ggplot2` and `dplyr` packages
@@ -354,7 +354,7 @@ filter(full_results, grepl("TP53", Symbol))
 filter(full_results, Chromosome==20)
 ```
 
-We can also filter according to p-value and fold-change cut-offs
+We can also filter according to p-value (adjusted) and fold-change cut-offs
 
 ```{r}
 p_cutoff <- 0.05
@@ -373,22 +373,82 @@ filter(full_results, adj.P.Val < 0.05, abs(logFC) > 1) %>%
 
 # Further visualisation
 
-TO DO...
+## Heatmaps of selected genes
+
+R and Bioconductor have many packages for creating heatmaps. The most popular at the current time `ComplexHeatmap` and `pheatmap` (that we will use here).
+
+Creating the heatmap is pretty straightforward. There is a `pheatmap` function within the `pheatmap` library, and it just needs to know the matrix of values that you want to plot (say `gene_matrix`):-
+
+```{r eval=FALSE}
+### example code
+library(pheatmap)
+pheatmap(gene_matrix)
+```
+
+However, there are many different ways of contrusting such a matrix depending on what you want to visualise in the plot. We will consider some options below.
+
+### Most differentially-expressed genes
+
+We have already created a table of differential expression results, which is ranked according to statistical significance. 
+
+To visualise the most differentially-expressed genes, we first need to extract their *IDs*. These IDs should correspond to rows in the expression matrix.
+
+In the code below we introduce a new column to the results which just gives a row number to each gene. We then filter to return data for the top *N* results. The `pull` function is used to extract the `ID` column as a variable.
+
 
 ```{r}
+## Use to top 20 genes for illustration
+
 topN <- 20
+##
 ids_of_interest <- mutate(full_results, Rank = 1:n()) %>% 
   filter(Rank < topN) %>% 
   pull(ID)
+```
+
+In order to label the heatmap in a useful manner we extract the corresponding gene symbols.
+
+```{r}
 gene_names <- mutate(full_results, Rank = 1:n()) %>% 
   filter(Rank < topN) %>% 
   pull(Symbol) 
-gene_matrix <- exprs(gse)[ids_of_interest,]
-
 ```
+
+The expression values for the IDs we have retrieved can be obtained by using the `[..]` notation to index the expression matrix. 
+
+```{r}
+## Get the rows corresponding to ids_of_interest and all columns
+gene_matrix <- exprs(gse)[ids_of_interest,]
+```
+
+We now make the heatmap. A default colour scheme is used, but can be changed via the arguments. **Please don't use red and green.**
 
 ```{r}
 pheatmap(gene_matrix,
      labels_row = gene_names)
+```
+
+It is often preferable to scale each row to highlight the differences in each gene across the dataset.
+
+```{r}
+pheatmap(gene_matrix,
+     labels_row = gene_names,
+     scale="row")
+```
+
+
+### User-defined genes of interest
+
+
+### For a particular pathway
+
+Bioconductor annotation packages exist to allow easy conversion between different ID schemes
+
+```{r}
+library(org.Hs.eg.db)
+```
+
+```{r}
+
 ```
 
