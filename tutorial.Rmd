@@ -64,6 +64,12 @@ gse
 ## e.g. gse <- gse[[2]]
 ```
 
+```{r eval=FALSE}
+pData(gse) ## print the sample information
+fData(gse) ## print the gene annotation
+exprs(gse) ## print the expression data
+```
+
 
 # Check the normalisation and scales used
 
@@ -181,6 +187,14 @@ gse <- gse[,-outlier_samples]
 
 ```
 
+# Exporting the data
+
+We can export the expression data to a `csv` for inspection in Excel using the `write_csv` function from `readr`. The expression values themselves will probably not be very useful as they will be named according to manufacturer ID rather than gene name (for example). We can create a matrix by joining the expression matrix with the feature annotation.
+
+```{r}
+full_output <- cbind(fData(gse),exprs(gse))
+write_csv(full_output, path="gse_full_output.csv")
+```
 
 
 # Differential Expression
@@ -190,6 +204,8 @@ By far the most-popular package for performing differential expression is `limma
 https://bioconductor.org/packages/release/bioc/vignettes/limma/inst/doc/usersguide.pdf
 
 Crucially, we have to allocate the samples in our dataset to the sample groups of interest. A useful function is  `model.matrix`, which will create a *design matrix* from one of the columns in your `sampleInfo`. Here I choose `sampleInfo$group`.
+
+The design matrix is a matrix of `0` and `1`s; one row for each sample and one column for each sample group. A `1` in a particular row and column indicates that a given sample (the row) belongs to a given group (column).
 
 ```{r}
 library(limma)
@@ -391,7 +407,7 @@ However, there are many different ways of contrusting such a matrix depending on
 
 We have already created a table of differential expression results, which is ranked according to statistical significance. 
 
-To visualise the most differentially-expressed genes, we first need to extract their *IDs*. These IDs should correspond to rows in the expression matrix.
+To visualise the most differentially-expressed genes, we first need to extract their `ID`. These IDs should correspond to rows in the expression matrix.
 
 In the code below we introduce a new column to the results which just gives a row number to each gene. We then filter to return data for the top *N* results. The `pull` function is used to extract the `ID` column as a variable.
 
@@ -439,16 +455,103 @@ pheatmap(gene_matrix,
 
 ### User-defined genes of interest
 
+The procedure is similar to above if you have your own list of genes (e.g. genes from a previous study). The `%in%` function is used to identify rows whose `Symbol` matches any member of `my_genes`. Here we create `my_genes` manually. If you want to plot the genes belonging to a particular *GO* term, it might be more efficient to follow the section below.
+
+Depending on the technology used, there might be multiple matches for a particular gene; so we could end up with more `ID`s than genes. Therefore we repeat the filtering put `pull` the `Symbol` column to make sure we can label the rows of the heatmap.
+
+```{r}
+
+my_genes <- c("HIG2", "CA1","ETV4","FOXA1")
+ids_of_interest <-  filter(full_results,Symbol %in% my_genes) %>% 
+  pull(ID)
+
+gene_names <-  filter(full_results,Symbol %in% my_genes) %>% 
+  pull(Symbol)
+```
+
+```{r}
+gene_matrix <- exprs(gse)[ids_of_interest,]
+pheatmap(gene_matrix,
+         labels_row = gene_names,
+         scale="row")
+
+```
+
 
 ### For a particular pathway
 
-Bioconductor annotation packages exist to allow easy conversion between different ID schemes
+Bioconductor annotation packages exist for a number of organisms to allow easy conversion between different ID schemes. In this particular use-case we can retrieve the names of genes belonging to a given pathway.
+
+You can check what packages are available from the Bioconductor page (look for the packages named `org.XX.XX.db`)
+
+- [list of Bioconductor organism packages](http://bioconductor.org/packages/release/BiocViews.html#___Organism)
+
+```{r eval=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("org.Hs.eg.db")
+
+```
+
+Once installed, we load the package in the usual manner:-
 
 ```{r}
 library(org.Hs.eg.db)
 ```
 
-```{r}
+Each of these organism packages has a series of keytypes that can we can use to query:-
 
+```{r}
+keytypes(org.Hs.eg.db)
+```
+
+and a series of columns of data that we can retrieve:-
+
+```{r}
+columns(org.Hs.eg.db)
+```
+
+To make a query we need to specify a set of *keys* (the IDs that we want to map), what *type* these keys (must match something in the output of `keytypes`) and the columns (the additional data we want).
+
+For illustration, we'll use the same genes from above (of keytype `SYMBOL`) and retrieve their `ENSEMBL` ID and `GO` terms.
+
+The function required to make the query is also called `select`, but different from the `select` function we have used from `dplyr`. To avoid confusion, we explictly tell R to use the `select` function from `AnnotationDbi` (the package used to query annotation databases automatically installed when we download a database package).
+
+```{r}
+my_genes <- c("HIG2", "CA1","ETV4","FOXA1")
+
+anno <- AnnotationDbi::select(org.Hs.eg.db, 
+                              columns=c("ENSEMBL","GO"),
+                              keys=my_genes,
+                              keytype = "SYMBOL")
+anno
+```
+
+We can use the same function to retrieve genes belonging to a particular pathway with appropriate adjustments to the `columns`, `keys` and `keytype` arguments:-
+
+```{r}
+anno <- AnnotationDbi::select(org.Hs.eg.db,
+                              columns="SYMBOL",
+                              keys="GO:0006338",
+                              keytype="GO")
+anno
+```
+
+
+```{r}
+my_genes <- pull(anno, SYMBOL)
+ids_of_interest <-  filter(full_results,Symbol %in% my_genes) %>% 
+  pull(ID)
+
+gene_names <-  filter(full_results,Symbol %in% my_genes) %>% 
+  pull(Symbol)
+```
+
+```{r}
+gene_matrix <- exprs(gse)[ids_of_interest,]
+pheatmap(gene_matrix,
+         labels_row = gene_names,
+         scale="row")
 ```
 
