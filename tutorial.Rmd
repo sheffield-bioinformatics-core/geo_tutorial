@@ -192,8 +192,21 @@ gse <- gse[,-outlier_samples]
 We can export the expression data to a `csv` for inspection in Excel using the `write_csv` function from `readr`. The expression values themselves will probably not be very useful as they will be named according to manufacturer ID rather than gene name (for example). We can create a matrix by joining the expression matrix with the feature annotation.
 
 ```{r}
+library(readr)
 full_output <- cbind(fData(gse),exprs(gse))
 write_csv(full_output, path="gse_full_output.csv")
+```
+
+The annotation from GEO might contain lots of columns that we are not particularly interested in. To keep the data tidier we can use the `select` function to only print particular columns in the output.
+
+```{r}
+features <- fData(gse)
+View(features)
+### Look at the features data frame and decide the names of the columns you want to keep
+features <- select(anno,Symbol,Entrez_Gene_ID,Chromosome,Cytoband)
+full_output <- cbind(features,exprs(gse))
+write_csv(full_output, path="gse_full_output.csv")
+
 ```
 
 
