@@ -203,7 +203,7 @@ The annotation from GEO might contain lots of columns that we are not particular
 features <- fData(gse)
 View(features)
 ### Look at the features data frame and decide the names of the columns you want to keep
-features <- select(anno,Symbol,Entrez_Gene_ID,Chromosome,Cytoband)
+features <- select(features,Symbol,Entrez_Gene_ID,Chromosome,Cytoband)
 full_output <- cbind(features,exprs(gse))
 write_csv(full_output, path="gse_full_output.csv")
 
@@ -228,21 +228,34 @@ design
 colnames(design) <- c("Normal","Tumour")
 ```
 
+It has been demonstrated that our power to detect differential expression can be improved if we filter lowly-expressed genes prior to performing the analysis. Quite how one defines a gene being expressed may vary from experiment to experiment, so a cut-off that will work for all datasets is not feasible. Here we consider that aroudn 50% of our genes will not be expressed, and use the median expression level as a cut-off.
 
-Prior to the differential expression analysis, we will *filter* the data so only the top 50% most-variable genes get analysed, which [has been shown](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2906865/) to increase our power to detect differential expression. We can do this using the `varFilter` function in the `genefilter` package.
+```{r eval=FALSE}
+summary(exprs(gse))
 
-```{r}
-library(genefilter)
-gse.expFilt <- varFilter(gse)
-gse.expFilt
+## calculate median expression level
+cutoff <- median(exprs(gse))
+
+## TRUE or FALSE for whether each gene is "expressed" in each sample
+is_expressed <- exprs(gse) > cutoff
+
+## Identify genes expressed in more than 2 samples
+
+keep <- rowSums(is_expressed) > 2
+
+## check how many genes are removed / retained.
+table(keep)
+
+## subset to just those expressed genes
+gse <- gse[keep,]
 ```
 
 
 
-The `lmFit` funcion is used to fit the model to the data. The result of which is to estimate the expression level in each of the groups that we specified.
+The `lmFit` function is used to fit the model to the data. The result of which is to estimate the expression level in each of the groups that we specified.
 
 ```{r}
-fit <- lmFit(exprs(gse.expFilt), design)
+fit <- lmFit(exprs(gse), design)
 head(fit$coefficients)
 ```
 
@@ -302,7 +315,7 @@ aw
 The `lmFit` function can accept weights, and the rest of the code proceeds as above.
 
 ```{r}
-fit <- lmFit(exprs(gse.expFilt), design,
+fit <- lmFit(exprs(gse), design,
              weights = aw)
 contrasts <- makeContrasts(Tumour - Normal, levels=design)
 fit2 <- contrasts.fit(fit, contrasts)
@@ -318,7 +331,7 @@ At the moment our results are not particularly easy to navigate as the only info
 Once an annotation data frame has been created, it can be assigned to our results.
 
 ```{r}
-anno <- fData(gse.expFilt)
+anno <- fData(gse)
 anno
 anno <- select(anno,Symbol,Entrez_Gene_ID,Chromosome,Cytoband)
 fit2$genes <- anno
