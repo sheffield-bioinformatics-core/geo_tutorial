@@ -581,3 +581,196 @@ pheatmap(gene_matrix,
          scale="row")
 ```
 
+# Survival Analysis
+
+In this section we give a brief overview of how to perform a survival analysis from a published dataset. The example dataset in question, although quite old, is a useful example of predicting survival in breast cancer. 
+
+You will need to install an extra package, `survminer` for the survival analysis itself.
+
+```{r eval=FALSE}
+install.packages("survminer")
+```
+
+We will use the usual commands for importing the data.
+
+```{r}
+library(GEOquery)
+gse <- getGEO('GSE7390')[[1]]
+```
+
+We are going to be interested in the phenotypic (/clinical) data stored with the dataset, which will unfortunately require some cleaning prior to analysis. This will be quite a laborious process as there are many variables of interest. For your own dataset, you may need to adapt the code accordingly.
+
+
+To eye-ball the contents we can use the `View` command in RStudio.
+
+
+```{r}
+View(pData(gse))
+```
+
+It seems that most of the useful columns are prefixed by `characteristics`, so we can use the convenient `contains` function to `select` these. `characteristics_ch1` and `characteristics_ch1.2` are probably not useful, so we will remove these. 
+
+```{r}
+library(dplyr)
+s_data <- pData(gse) %>% 
+  select(geo_accession, contains("characteristics"), -characteristics_ch1.2, -characteristics_ch1, -characteristics_ch1.1)
+```
+
+None of the columns have very convenient names, so we will go ahead and `rename` them.
+
+```{r}
+s_data <- s_data %>% 
+  rename(hospital = characteristics_ch1.3,
+         age = characteristics_ch1.4,
+         size = characteristics_ch1.5,
+         surgery_type = characteristics_ch1.6,
+         histtype = characteristics_ch1.7,
+         angioinv = characteristics_ch1.8,
+         lymp_infil = characteristics_ch1.9,
+         node = characteristics_ch1.10,
+         grade = characteristics_ch1.11,
+         er = characteristics_ch1.12,
+         t.rfs = characteristics_ch1.13,
+         e.rfs = characteristics_ch1.14,
+         t.os = characteristics_ch1.15,
+         e.os = characteristics_ch1.16,
+         t.dmfs = characteristics_ch1.17,
+         e.dmfs =characteristics_ch1.18,
+         t.tdm = characteristics_ch1.19,
+         e.tdm = characteristics_ch1.20,
+         risksg = characteristics_ch1.21,
+         npi = characteristics_ch1.22,
+         risknpi = characteristics_ch1.23,
+         aol_os_10yr = characteristics_ch1.24,
+         risk_aol = characteristics_ch1.25,
+         veridex_risk = characteristics_ch1.26)
+
+```
+
+The columns themselves contain entries that are not particularly convenient for analysis. For example, in the `age` column we would expect to find the age of patients in years. Instead each entry is prefixed by the string `age: `, and the same is true for other columns of interest. We can fix this by a performing a *g*lobal *sub*stituion in the offending columns; replacing the prefix with an empty string `""`. See the help on `gsub` for more information. The `dplyr` function `mutate` will save the update column in the data frame.
+
+```{r}
+s_data <- s_data %>% 
+  mutate(hospital = gsub("hospital: ", "", hospital, fixed=TRUE),
+         age = as.numeric(gsub("age: ","", age, fixed=TRUE)),
+         size = as.numeric(gsub("size: ","", size, fixed=TRUE)),
+         surgery_type = gsub("Surgery_type: ","", surgery_type, fixed=TRUE),
+         histtype = gsub("Histtype: ","", histtype, fixed=TRUE),
+         angioinv = gsub("Angioinv: ","", angioinv, fixed=TRUE),
+         lymp_infil = gsub("Lymp_infil: ","", lymp_infil, fixed=TRUE),
+         node = gsub("node: ","", node, fixed=TRUE),
+         grade = gsub("grade: ","", grade, fixed=TRUE),
+         er = gsub("er: ","", er, fixed=TRUE),
+         t.rfs = as.numeric(gsub("t.rfs: ","", t.rfs, fixed=TRUE)),
+         e.rfs = as.numeric(gsub("e.rfs: ","", e.rfs, fixed=TRUE)),
+         t.os = as.numeric(gsub("t.os: ","", t.os, fixed=TRUE)),
+         e.os = as.numeric(gsub("e.os: ","", e.os, fixed=TRUE)),
+         t.dmfs = as.numeric(gsub("t.dmfs: ","", t.dmfs, fixed=TRUE)),
+         e.dmfs = as.numeric(gsub("e.dmfs: ","", e.dmfs, fixed=TRUE)),
+         t.tdm = as.numeric(gsub("t.tdm: ","", t.tdm, fixed=TRUE)),
+         e.tdm = as.numeric(gsub("e.tdm: ","", e.tdm, fixed=TRUE)),
+         risksg = gsub("risksg: ","", risksg, fixed=TRUE),
+         npi = as.numeric(gsub("NPI: ","", npi, fixed=TRUE)),
+         risknpi = gsub("risknpi: ","", risknpi, fixed=TRUE),
+         aol_os_10yr = as.numeric(gsub("AOL_os_10y: ","", aol_os_10yr, fixed=TRUE)),
+         risk_aol = gsub("risk_AOL: ","", risk_aol, fixed=TRUE),
+         veridex_risk = gsub("veridex_risk: ","", veridex_risk, fixed=TRUE)
+         )
+```
+Finally we can start to fit survival models to the data. For more detailed explanation of the `survminer` package, the project page has lots of useful information. It is well-known that the Estrogen Receptor (ER) status of a breast cancer is predictive of survival. We have this variable in the `er` column of `s_data`, so can fit the model and plot with the following:-
+
+```{r}
+library(survival)
+library(survminer)
+fit <- survfit(Surv(t.os, e.os) ~ er, data = s_data)
+ggsurvplot(fit, data = s_data,pval = TRUE)
+```
+
+
+The p-value is significant, as we would hope, with patients having a negative ER status having poorer survival. Other variables can be tested by modifying the formula. For more information on `survminer` see the package documentation at:-
+
+- [https://github.com/kassambara/survminer](https://github.com/kassambara/survminer)
+
+## Testing Survival association with gene expression
+
+The real utility of having the GEO dataset in a convenient format is to test for associations with the expression level of a particular gene; rather than a pre-defined clinical variable. Thus, we can validate if the genes we are interested in might be predictive of survival. As an example we will use the gene `ESR1` (Estrogen Receptor 1).
+
+We can get a look at the expression values by printing the first five rows and columns. It is quite common for microarray datasets to have each row labelled according to a particular microarray probe identifer (as we have here), so we will need a way of being able to identify genes by their more-common name.
+
+```{r}
+exprs(gse)[1:5,1:5]
+```
+
+More information about the probes is retrieved using the `fData` function.
+
+```{r}
+features <- fData(gse)
+View(features)
+```
+
+In this case, the columns of interest are probably `ID` (which should match the rows of our expression matrix) and `Gene Symbol`. For your own data, you will have to work out the names of columns you want to use.
+
+
+```{r}
+features <- select(features, ID, `Gene Symbol`)
+```
+
+
+We can also notice that some rows have multiple entries separated by the `///` set of characters. We can split into multiple columns using the `separate` function from `tidyr`.
+
+```{r}
+features <- tidyr::separate(features,`Gene Symbol`, into = c("Symbol_1","Symbol_2"), sep=" /// ")
+```
+
+We can now join this to our expression matrix.
+
+```{r}
+e_data <- exprs(gse) %>% 
+  data.frame %>% 
+  tibble::rownames_to_column("ID") %>% 
+  left_join(features)
+```
+
+Now that we have gene symbols in the same table as the expression data we can search according to the gene name. 
+
+```{r}
+e_data <- filter(e_data,Symbol_1 %in% "ESR1") %>% 
+  select(-Symbol_1, -Symbol_2)
+```
+
+```{r}
+e_data <- e_data %>% tidyr::gather(geo_accession, Expression,-ID) %>% 
+  tidyr::spread(ID, Expression)
+```
+
+We can now join these expression data to our `s_data` data frame that we are using for survival analysis. This is possible because both `s_data` and `e_data` have a column (`geo_accession`) in common.
+
+```{r}
+s_data <- left_join(s_data, e_data)
+```
+
+As an aside, we can do a quick sanity check as we expect **ESR1** to be lowly-expressed in ER negative tumours.
+
+```{r}
+ggplot(s_data, aes(x = er, y =`205225_at`)) + geom_boxplot()
+```
+
+As we saw before, the survival analysis requires a grouping variable to split our data (previously we used the `er` column). We can form the groups using the expression from one particular probe
+
+```{r}
+s_data <- mutate(s_data, Group = ifelse(`205225_at` > quantile(`205225_at`,0.25), "High","Low"))
+```
+
+```{r}
+fit <- survfit(Surv(t.os, e.os) ~ Group, data = s_data)
+ggsurvplot(fit, data = s_data,pval = TRUE)
+```
+
+```{r}
+s_data <- mutate(s_data, Group = cut(`205225_at`, breaks = quantile(`205225_at`,probs=c(0,0.25,0.5,1))))
+```
+
+```{r}
+fit <- survfit(Surv(t.os, e.os) ~ Group, data = s_data)
+ggsurvplot(fit, data = s_data,pval = TRUE)
+```
