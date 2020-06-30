@@ -23,6 +23,8 @@ install.packages("stringr")
 install.packages("ggplot2")
 install.packages("ggrepel")
 install.packages("readr")
+install.packages("tidyr")
+install.packages("survminer")
 BiocManager::install("GEOquery")
 BiocManager::install("limma")
 BiocManager::install("pheatmap")
@@ -613,14 +615,14 @@ It seems that most of the useful columns are prefixed by `characteristics`, so w
 ```{r}
 library(dplyr)
 s_data <- pData(gse) %>% 
-  select(geo_accession, contains("characteristics"), -characteristics_ch1.2, -characteristics_ch1, -characteristics_ch1.1)
+  dplyr::select(geo_accession, contains("characteristics"), -characteristics_ch1.2, -characteristics_ch1, -characteristics_ch1.1)
 ```
 
 None of the columns have very convenient names, so we will go ahead and `rename` them.
 
 ```{r}
 s_data <- s_data %>% 
-  rename(hospital = characteristics_ch1.3,
+  dplyr::rename(hospital = characteristics_ch1.3,
          age = characteristics_ch1.4,
          size = characteristics_ch1.5,
          surgery_type = characteristics_ch1.6,
@@ -712,11 +714,11 @@ In this case, the columns of interest are probably `ID` (which should match the 
 
 
 ```{r}
-features <- select(features, ID, `Gene Symbol`)
+features <- dplyr::select(features, ID, `Gene Symbol`)
 ```
 
 
-We can also notice that some rows have multiple entries separated by the `///` set of characters. We can split into multiple columns using the `separate` function from `tidyr`.
+We can also notice that some rows have multiple entries separated by the `///` set of characters. We can split into multiple columns using the `separate` function from `tidyr`. You might not need to do this for your own dataset of interest.
 
 ```{r}
 features <- tidyr::separate(features,`Gene Symbol`, into = c("Symbol_1","Symbol_2"), sep=" /// ")
@@ -729,21 +731,46 @@ e_data <- exprs(gse) %>%
   data.frame %>% 
   tibble::rownames_to_column("ID") %>% 
   left_join(features)
+e_data
 ```
+Now that we have gene symbols in the same table as the expression data we can search according to the gene name. Depending on what gene is chosen you may get multiple probes. It looks like `ESR1` has quite a few in this dataset.
 
-Now that we have gene symbols in the same table as the expression data we can search according to the gene name. 
+In this step we can also choose to remove the symbol column as we won't need it later on.
 
 ```{r}
 e_data <- filter(e_data,Symbol_1 %in% "ESR1") %>% 
-  select(-Symbol_1, -Symbol_2)
+  dplyr::select(-Symbol_1, -Symbol_2)
+e_data
 ```
+
+We would like to incorporate these values into our analysis, but at the moment the dimensions are not compatible with `s_data`; we need a data frame with one row for each sample and a column for each feature of interest (in this case a gene expression probe).
+
+```{r}
+dim(s_data)
+dim(e_data)
+```
+
+
+Essentially the data need to be *transposed*. Whilst R provides a function `t` for transposing, it doesn't seem to work well (in my experience) for data frames.  Instead we can use a two-step process of converting to a *long* data type (with more rows than columns) with `gather` from the `tidyr` package, and then making into a wide table with expression probes as columns with `spread`. 
+
+Some pictorial representation of `gather` and `spread` is provided on [this cheatsheet](https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf)
+
+You will need to make sure you have installed `tidyr`. Once you have installed it, you won't need to repeat this step
+
+```{r eval=FALSE}
+install.packages("tidyr")
+```
+
+Now for the transformation. When we `gather` the data we can choose the column names in the output data frame. I have chosen `geo_accession` because this will help later on when I want to merge with the survival data (which already has a column by this name). 
 
 ```{r}
 e_data <- e_data %>% tidyr::gather(geo_accession, Expression,-ID) %>% 
   tidyr::spread(ID, Expression)
+e_data
+## TO-DO: replace with pivot_wider and pivot_longer at some point
 ```
 
-We can now join these expression data to our `s_data` data frame that we are using for survival analysis. This is possible because both `s_data` and `e_data` have a column (`geo_accession`) in common.
+The dimensions should now match our survival data. We can now join these using the `left_join` function from `dplyr`. This is possible because both `s_data` and `e_data` have a column (`geo_accession`) in common.
 
 ```{r}
 s_data <- left_join(s_data, e_data)
@@ -755,7 +782,8 @@ As an aside, we can do a quick sanity check as we expect **ESR1** to be lowly-ex
 ggplot(s_data, aes(x = er, y =`205225_at`)) + geom_boxplot()
 ```
 
-As we saw before, the survival analysis requires a grouping variable to split our data (previously we used the `er` column). We can form the groups using the expression from one particular probe
+As we saw before, the survival analysis requires a grouping variable to split our data (previously we used the `er` column). A convenient way to create a new grouping variable is to use the `ifelse` function. This will create a new variable of two values depending on a logical expression. In this case we can assign `High` or `Low` grouping depending on whether the expression values for a given probe (`205225_at`) exceed a cutoff or not. For this example we will use the 25th percentile (via the `quantile` function) as we know low expression is predictive
+
 
 ```{r}
 s_data <- mutate(s_data, Group = ifelse(`205225_at` > quantile(`205225_at`,0.25), "High","Low"))
@@ -765,9 +793,9 @@ s_data <- mutate(s_data, Group = ifelse(`205225_at` > quantile(`205225_at`,0.25)
 fit <- survfit(Surv(t.os, e.os) ~ Group, data = s_data)
 ggsurvplot(fit, data = s_data,pval = TRUE)
 ```
-
 ```{r}
-s_data <- mutate(s_data, Group = cut(`205225_at`, breaks = quantile(`205225_at`,probs=c(0,0.25,0.5,1))))
+cutoff <- 0.5
+s_data <- mutate(s_data, Group = ifelse(`205225_at` > quantile(`205225_at`,cutoff), "High","Low"))
 ```
 
 ```{r}
